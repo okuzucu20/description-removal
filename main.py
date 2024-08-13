@@ -111,6 +111,7 @@ def train_projection():
     print("Train dataset:", len(train_dataset), "Val dataset:", len(val_dataset))
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=32)
     val_dataloader = DataLoader(val_dataset, shuffle=False, batch_size=32)
+    print("Train dataloader:", len(train_dataset), "Val dataloader:", len(val_dataset))
 
     trainer = Trainer(model, optimizer, train_dataloader, val_dataloader)
     trainer.train_and_validate()
