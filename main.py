@@ -130,7 +130,7 @@ def main():
     parser.add_argument("--test-coco-initialization", dest="test_coco_initialization", action='store_true')
     parser.add_argument("--config", type=str, default="config/clip_away_inference.yaml")
     parser.add_argument("--generate-samples", dest="sample_count", type=int)
-    parser.add_argument("-s", dest="seed", description="seed for sampling", type=int)
+    parser.add_argument("-s", dest="seed", help="seed for sampling", type=int)
 
     options = parser.parse_args()
 
