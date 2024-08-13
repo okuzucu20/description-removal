@@ -50,7 +50,7 @@ class ProjectionDataset(Dataset):
         self.image_embeds = {}
         self.text_embeds = {}
 
-        self.image_ids: List[int] = self._extract_image_ids()
+        self.image_ids: List[int] = self._extract_image_ids()[:100]
         self._load_embeddings()
 
         return self
