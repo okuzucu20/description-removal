@@ -109,7 +109,7 @@ class Trainer:
     def __init__(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
                  train_dataloader: torch.utils.data.DataLoader, val_dataloader: torch.utils.data.DataLoader,
                  criterion=torch.nn.MSELoss(), device: torch.device = "cuda" if torch.cuda.is_available() else "cpu",
-                 num_epochs: int = 40):
+                 num_epochs: int = 10):
         self.model = model.to(device)
         self.optimizer = optimizer
         self.train_dataloader = train_dataloader
