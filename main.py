@@ -111,8 +111,14 @@ def train_projection():
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=32)
     val_dataloader = DataLoader(val_dataset, shuffle=False, batch_size=32)
 
-    trainer = Trainer(model, optimizer, train_dataloader, val_dataloader)
+    trainer = ProjectionTrain(model, optimizer, train_dataloader, val_dataloader)
     trainer.train_and_validate()
+
+
+def generate_samples(config, count, seed):
+    coco_dataset: COCODataset = COCODataset().load(background=False)
+    inference_module = ProjectionInference(config, coco_dataset).load()
+    inference_module.generate(count=count, seed=seed)
 
 
 def main():
@@ -123,6 +129,8 @@ def main():
     parser.add_argument("--train-projection", dest="train_projection", action='store_true')
     parser.add_argument("--test-coco-initialization", dest="test_coco_initialization", action='store_true')
     parser.add_argument("--config", type=str, default="config/clip_away_inference.yaml")
+    parser.add_argument("--generate-samples", dest="sample_count", type=int)
+    parser.add_argument("-s", dest="seed", description="seed for sampling", type=int)
 
     options = parser.parse_args()
 
@@ -136,6 +144,10 @@ def main():
         test_coco_initialization()
     elif options.train_projection:
         train_projection()
+    elif options.sample_count:
+        config = OmegaConf.load(options.config)
+        seed = options.seed if options.seed is not None else config.seed
+        generate_samples(config, options.sample_count, seed)
 
 
 if __name__ == '__main__':

@@ -5,6 +5,10 @@ from torch.utils.data import Dataset
 from typing import Dict, List
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+from model.clip_away import CLIPAway
+from src.coco_dataset import COCODataset
+from diffusers import StableDiffusionInpaintPipeline
+import random
 
 
 class Projector(torch.nn.Module):
@@ -104,7 +108,7 @@ class ProjectionDataset(Dataset):
         return x, y  # image_bg+image_fg, text_bg+text_fg
 
 
-class Trainer:
+class ProjectionTrain:
 
     def __init__(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
                  train_dataloader: torch.utils.data.DataLoader, val_dataloader: torch.utils.data.DataLoader,
@@ -196,4 +200,80 @@ class Trainer:
         }, save_path)
 
 
+class CLIPAwayWithLearnedProjection(CLIPAway):
+
+    def __init__(self, config, projector: Projector):
+        super().__init__(image_encoder_path=config.image_encoder_path,
+                         ip_ckpt=config.ip_adapter_ckpt_path,
+                         alpha_clip_path=config.alpha_clip_ckpt_pth,
+                         config=config,
+                         alpha_clip_id=config.alpha_clip_id,
+                         device="cuda" if torch.cuda.is_available() else "cpu",
+                         num_tokens=4,
+                         sd_pipe=StableDiffusionInpaintPipeline.from_pretrained(config.sd_model_key,
+                                                                                safety_checker=None,
+                                                                                torch_dtype=torch.float32))
+        self.projector = projector
+
+    def clipaway_projection_block(self, bg_embeds, fg_embeds):
+        x = torch.cat([bg_embeds, fg_embeds], dim=-1)
+        print("x shape:", x.shape)
+        out = self.projector(x).chunk(2, dim=-1)[0]
+        print("out shape:", out.shape)
+        return out
+
+
+class ProjectionInference:
+
+    def __init__(self, clipaway_config, test_dataset: COCODataset):
+        self.clipaway_config = clipaway_config
+        self.test_dataset = test_dataset
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.projector = None
+        self.clipaway = None
+
+    def _load_projection_model(self, model_idx: int = None):
+        latest_idx = ProjectionInference._get_current_index_in_directory("ckpts", "projection_model")
+
+        if model_idx is None:
+            model_idx = latest_idx
+
+        if not isinstance(model_idx, int) or model_idx < 1 or model_idx > latest_idx:
+            raise ValueError("Wrong index used for loading projection model.")
+
+        checkpoint = torch.load(f"ckpts/projection_model_{model_idx}.pt")
+        self.projector = Projector()
+        self.projector.load_state_dict(checkpoint["model_state_dict"])
+
+        self.projector.to(self.device)
+
+    def _load_clipaway(self):
+        self.clipaway = CLIPAwayWithLearnedProjection(self.clipaway_config, self.projector)
+
+    def load(self):
+        self._load_projection_model()
+        self._load_clipaway()
+        return self
+
+    def generate(self, count: int, seed=None):
+
+        seed = seed if seed is not None else self.clipaway_config.seed
+        latents = torch.randn((1, 4, 64, 64), generator=torch.Generator().manual_seed(seed)).to(self.device)
+        random.seed(seed)
+
+        datapoint_indices: List[int] = random.sample(range(len(self.test_dataset)), count)
+        for i in tqdm(datapoint_indices):
+            datapoint, datapoint_raw = self.test_dataset[i]
+            out = self.clipaway.generate(prompt=[""], scale=self.clipaway_config.scale, seed=seed,
+                                         pil_image=datapoint.image, alpha=datapoint.segments[0].mask,
+                                         strength=self.clipaway_config.strength, latents=latents)[0]
+            out.save(f"image_samples_generated/{COCODataset.filepath_to_id(datapoint_raw.image_path)}.jpg")
+
+    @staticmethod
+    def _get_current_index_in_directory(directory: str, prefix: str):
+        count = 0
+        for filename in os.listdir(directory):
+            if filename.startswith(prefix):
+                count += 1
+        return count + 1
 

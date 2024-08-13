@@ -7,3 +7,4 @@ sd_model_key: "runwayml/stable-diffusion-inpainting"
 number_of_hidden_layers: 6
 alpha_clip_embed_dim: 768
 ip_adapter_embed_dim: 1024
+seed: 42

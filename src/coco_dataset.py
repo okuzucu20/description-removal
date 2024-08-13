@@ -98,7 +98,6 @@ class COCODataset(Dataset):
                 continue
             self.save_bg_description_of(datapoint_raw)
 
-
     def load(self, use_blip=False, background=False):
         id_to_image_paths = self._load_image_paths()
         id_to_captions = self._load_captions()
