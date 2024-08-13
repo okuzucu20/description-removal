@@ -164,6 +164,7 @@ class Trainer:
             loss = self.criterion(output, y)
 
             epoch_loss += loss.detach().cpu().numpy() * x.size(0)
+        print("Val dataloader len:", len(self.val_dataloader))
         return epoch_loss / len(self.val_dataloader)
 
     @staticmethod
