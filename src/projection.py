@@ -59,6 +59,7 @@ class ProjectionDataset(Dataset):
         for image_id in tqdm(self.image_ids, desc=f"Loading embeddings"):
             text_embed_bg = torch.load(os.path.join(self.text_embeds_path, f"{image_id}_bg.pt"), weights_only=True)
             text_embed_fg = torch.load(os.path.join(self.text_embeds_path, f"{image_id}_fg.pt"), weights_only=True)
+            text_embed_bg, text_embed_fg = text_embed_bg.reshape((1, -1)), text_embed_fg.reshape((1, -1))
             self.text_embeds.update({image_id: [text_embed_bg, text_embed_fg]})
 
             image_embed_bg = torch.load(os.path.join(self.image_embeds_path, f"{image_id}_bg.pt"), weights_only=True)
