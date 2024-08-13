@@ -1,7 +1,6 @@
 from model.clip_away import CLIPAway
 from diffusers import StableDiffusionInpaintPipeline
 from typing import List
-from PIL import Image
 from src.models import COCODatapoint
 from src.coco_dataset import COCODataset
 import torch

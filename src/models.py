@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from PIL import Image
 from typing import List, Optional, Union
 from pydantic import Field
-import torch
 
 
 @dataclass

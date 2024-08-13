@@ -1,9 +1,7 @@
 from torch.utils.data import Dataset
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from src.models import *
 from PIL import Image
-from pycocotools import mask as mask_util
-from dataclasses import asdict
 import os
 import json
 import numpy as np

@@ -2,6 +2,7 @@ from src.coco_dataset import COCODataset
 from src.gpt_client import GPTClient
 from src.clip_away_service import CLIPAwayService
 from src.models import *
+from src.projection import *
 from omegaconf import OmegaConf
 from typing import Tuple, List
 from math import ceil
@@ -9,7 +10,9 @@ import argparse
 import os
 from tqdm import tqdm
 from random import shuffle
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
+from torch import Generator
+from torch.optim import Adam
 
 BG_GENERATION_COUNT = 118287
 
@@ -98,11 +101,26 @@ def generate_embeddings(config, embed_type):
         embedding_generator(datapoint_batch, save_with_ids=image_ids)
 
 
+def train_projection():
+    model = Projector()
+
+    optimizer = Adam(model.parameters(), lr=1e-5, weight_decay=1e-4)
+
+    dataset = ProjectionDataset().load()
+    train_dataset, val_dataset = random_split(dataset, [0.75, 0.25], generator=Generator().manual_seed(42))
+    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=32)
+    val_dataloader = DataLoader(val_dataset, shuffle=False, batch_size=32)
+
+    trainer = Trainer(model, optimizer, train_dataloader, val_dataloader)
+    trainer.train_and_validate()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--remove-foreground", dest="remove_foreground", action='store_true')
     parser.add_argument("--image-embeddings", dest="image_embeddings", action='store_true')
     parser.add_argument("--text-embeddings", dest="text_embeddings", action='store_true')
+    parser.add_argument("--train-projection", dest="train_projection", action='store_true')
     parser.add_argument("--test-coco-initialization", dest="test_coco_initialization", action='store_true')
     parser.add_argument("--config", type=str, default="config/clip_away_inference.yaml")
 
@@ -116,6 +134,8 @@ def main():
         generate_embeddings(OmegaConf.load(options.config), "text")
     elif options.test_coco_initialization:
         test_coco_initialization()
+    elif options.train_projection:
+        train_projection()
 
 
 if __name__ == '__main__':
