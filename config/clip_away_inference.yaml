@@ -8,3 +8,5 @@ number_of_hidden_layers: 6
 alpha_clip_embed_dim: 768
 ip_adapter_embed_dim: 1024
 seed: 42
+scale: 1
+strength: 1
