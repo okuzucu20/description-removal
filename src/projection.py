@@ -265,7 +265,7 @@ class ProjectionInference:
         for i in tqdm(datapoint_indices):
             datapoint, datapoint_raw = self.test_dataset[i]
             out = self.clipaway.generate(prompt=[""], scale=self.clipaway_config.scale, seed=seed,
-                                         pil_image=datapoint.image, alpha=datapoint.segments[0].mask,
+                                         pil_image=[datapoint.image], alpha=[datapoint.segments[0].mask],
                                          strength=self.clipaway_config.strength, latents=latents)[0]
             out.save(f"image_samples_generated/{COCODataset.filepath_to_id(datapoint_raw.image_path)}.jpg")
 
