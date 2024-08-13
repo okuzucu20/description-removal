@@ -108,6 +108,7 @@ def train_projection():
 
     dataset = ProjectionDataset().load()
     train_dataset, val_dataset = random_split(dataset, [0.75, 0.25], generator=Generator().manual_seed(42))
+    print("Train dataset:", len(train_dataset), "Val dataset:", len(val_dataset))
     train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=32)
     val_dataloader = DataLoader(val_dataset, shuffle=False, batch_size=32)
 
