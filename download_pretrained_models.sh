@@ -1,4 +1,4 @@
-mkdir ckpts ckpts/AlphaCLIP ckpts/IPAdapter ckpts/CLIPAway
+mkdir ckpts/AlphaCLIP ckpts/IPAdapter ckpts/CLIPAway
 echo "Downloading Alpha-CLIP weights..."
 cd ckpts/AlphaCLIP
 gdown 1JfzOTvjf0tqBtKWwpBJtjYxdHi-06dbk
