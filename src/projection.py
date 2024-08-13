@@ -233,7 +233,7 @@ class ProjectionInference:
         self.clipaway = None
 
     def _load_projection_model(self, model_idx: int = None):
-        latest_idx = ProjectionInference._get_current_index_in_directory("ckpts", "projection_model")
+        latest_idx = ProjectionInference._get_current_index_in_directory("ckpts", "projection_model") - 1
 
         if model_idx is None:
             model_idx = latest_idx
