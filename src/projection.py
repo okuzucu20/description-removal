@@ -40,56 +40,64 @@ class Projector(torch.nn.Module):
 class ProjectionDataset(Dataset):
 
     def __init__(self):
+        self.image_ids: List[int] = []
         self.image_embeds: Dict[int, List[torch.Tensor]] = {}
         self.text_embeds: Dict[int, List[torch.Tensor]] = {}
         self.text_embeds_path = "text_embeds_generated"
         self.image_embeds_path = "image_embeds_generated"
-        self.embed_keys = []
 
     def load(self):
         self.image_embeds = {}
         self.text_embeds = {}
-        self._load_embeddings("image")
-        self._load_embeddings("text")
 
-        if len(self.image_embeds.keys()) != len(self.text_embeds.keys()):
-            raise ValueError(f"Image and text embeddings are not the same amount! \n"
-                             f"Image: {len(self.image_embeds.keys())} \n"
-                             f"Text: {len(self.text_embeds.keys())}")
-
-        self.embed_keys = self.image_embeds.keys()
+        self.image_ids: List[int] = self._extract_image_ids()
+        self._load_embeddings()
 
         return self
 
-    def _load_embeddings(self, embed_type: str):
-        if embed_type == "image":
-            embeds = self.image_embeds
-            embeds_dir_path = self.image_embeds_path
-        elif embed_type == "text":
-            embeds = self.text_embeds
-            embeds_dir_path = self.text_embeds_path
-        else:
-            raise ValueError("Wrong embedding type specified")
+    def _load_embeddings(self):
+        for image_id in tqdm(self.image_ids, desc=f"Loading embeddings"):
+            text_embed_bg = torch.load(os.path.join(self.text_embeds_path, f"{image_id}_bg.pt"), weights_only=True)
+            text_embed_fg = torch.load(os.path.join(self.text_embeds_path, f"{image_id}_fg.pt"), weights_only=True)
+            self.text_embeds.update({image_id: [text_embed_bg, text_embed_fg]})
 
-        for embed_file in tqdm(os.listdir(embeds_dir_path), desc=f"Loading {embed_type} embeddings"):
-            image_id, desc_type = embed_file.split('.')[0].split('_')
-            image_id = int(image_id)
+            image_embed_bg = torch.load(os.path.join(self.image_embeds_path, f"{image_id}_bg.pt"), weights_only=True)
+            image_embed_fg = torch.load(os.path.join(self.image_embeds_path, f"{image_id}_fg.pt"), weights_only=True)
+            self.image_embeds.update({image_id: [image_embed_bg, image_embed_fg]})
 
-            embed = torch.load(os.path.join(embeds_dir_path, embed_file), weights_only=True)
-            embed_pair = embeds.get(image_id, [None, None])
+    def _extract_image_ids(self) -> List[int]:
+        text_embeds_image_ids: List[int] = self._extract_image_ids_from_directory(self.text_embeds_path)
+        image_embeds_image_ids: List[int] = self._extract_image_ids_from_directory(self.image_embeds_path)
+
+        if set(text_embeds_image_ids) != set(image_embeds_image_ids):
+            raise ValueError("Text and image embeddings are not the same size!")
+
+        return text_embeds_image_ids
+
+    @staticmethod
+    def _extract_image_ids_from_directory(dir_path: str) -> List[int]:
+        image_ids_bg = []
+        image_ids_fg = []
+
+        for filename in os.listdir(dir_path):
+            image_id, desc_type = filename.split('.')[0].split('_')
             if desc_type == "bg":
-                embed_pair = [embed] + embed_pair[1:]
+                image_ids_bg.append(int(image_id))
             elif desc_type == "fg":
-                embed_pair = embed_pair[:1] + [embed]
+                image_ids_fg.append(int(image_id))
             else:
                 raise ValueError("Wrong description type present in file names!")
-            embeds.update({image_id: embed_pair})
+
+        if set(image_ids_bg) != set(image_ids_fg):
+            raise ValueError("Foreground and background embeddings are not the same size!")
+
+        return image_ids_bg
 
     def __len__(self):
-        return len(self.image_embeds.keys())
+        return len(self.image_ids)
 
     def __getitem__(self, idx):
-        key: int = self.embed_keys[idx]
+        key: int = self.image_ids[idx]
         x = torch.cat(self.image_embeds[key], dim=1)
         y = torch.cat(self.text_embeds[key], dim=1)
         return x, y  # image_bg+image_fg, text_bg+text_fg
