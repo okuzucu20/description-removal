@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import Dataset
 from typing import Dict, List
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 
 class Projector(torch.nn.Module):
@@ -117,7 +118,7 @@ class Trainer:
 
         train_losses = []
         val_losses = [self._val_epoch()]
-        for epoch in range(1, self.num_epochs + 1):
+        for epoch in tqdm(list(range(1, self.num_epochs + 1)), desc="Epochs"):
 
             epoch_train_losses = self._train_epoch()
             epoch_val_loss = self._val_epoch()
@@ -131,7 +132,7 @@ class Trainer:
     def _train_epoch(self):
         epoch_losses = []
         self.model.train()
-        for x, y in self.train_dataloader:
+        for x, y in tqdm(self.train_dataloader, desc="Training"):
             x, y = x.to(self.device), y.to(self.device)
 
             self.optimizer.zero_grad()
@@ -147,7 +148,7 @@ class Trainer:
     def _val_epoch(self):
         epoch_loss = 0
         self.model.eval()
-        for x, y in self.val_dataloader:
+        for x, y in tqdm(self.val_dataloader, desc="Validation"):
             x, y = x.to(self.device), y.to(self.device)
 
             output = self.model(x)
