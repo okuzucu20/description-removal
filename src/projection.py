@@ -71,7 +71,7 @@ class ProjectionDataset(Dataset):
         else:
             raise ValueError("Wrong embedding type specified")
 
-        for embed_file in os.listdir(embeds_dir_path):
+        for embed_file in tqdm(os.listdir(embeds_dir_path), desc=f"Loading {embed_type} embeddings"):
             image_id, desc_type = embed_file.split('.')[0].split('_')
             image_id = int(image_id)
 
