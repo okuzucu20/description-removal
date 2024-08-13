@@ -217,9 +217,7 @@ class CLIPAwayWithLearnedProjection(CLIPAway):
 
     def clipaway_projection_block(self, bg_embeds, fg_embeds):
         x = torch.cat([bg_embeds, fg_embeds], dim=-1)
-        print("x shape:", x.shape)
         out = self.projector(x).chunk(2, dim=-1)[0]
-        print("out shape:", out.shape)
         return out
 
 
