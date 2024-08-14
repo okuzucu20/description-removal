@@ -1,3 +1,4 @@
+mkdir -p bg_desc_generated ckpts figures image_embeds_generated image_samples_generated text_embeds_generated
 mkdir ckpts/AlphaCLIP ckpts/IPAdapter ckpts/CLIPAway
 echo "Downloading Alpha-CLIP weights..."
 cd ckpts/AlphaCLIP
