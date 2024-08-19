@@ -22,6 +22,7 @@ class COCODataset(Dataset):
         self.object_size_threshold = 0.2
 
         self.datapoints_raw = None
+        self.check_segment_threshold = None
 
     def _load_image_paths(self) -> Dict[int, str]:
         image_paths: Dict[int, str] = {}
@@ -56,7 +57,7 @@ class COCODataset(Dataset):
         for image_filename in tqdm(caption_dict.keys(), desc="Loading BLIP captions"):
             captions[COCODataset.filepath_to_id(image_filename)] = caption_dict[image_filename]
 
-    def _load_segmentations(self, check_segment_threshold=False) -> Dict[int, List[COCODatapointSegmentRaw]]:
+    def _load_segmentations(self) -> Dict[int, List[COCODatapointSegmentRaw]]:
         segmentations: Dict[int, List[COCODatapointSegmentRaw]] = {}
 
         with open(self.instance_annotations_file_path, 'r') as f:
@@ -74,9 +75,6 @@ class COCODataset(Dataset):
                 continue
             else:
                 segment = COCODatapointSegmentPolygons(polygons=annotation["segmentation"])
-                if check_segment_threshold and self.is_object_size_threshold_surpassed_by(
-                        COCODataset.polygons_to_mask(segment, get_image_size(self.id_to_image_filepath(image_id)))):
-                    continue
 
             segment_raw = COCODatapointSegmentRaw(segment=segment,
                                                   objectType=categories[annotation["category_id"]])
@@ -125,7 +123,7 @@ class COCODataset(Dataset):
     def load(self, use_blip=False, bg=False, check_segment_threshold=False):
         id_to_image_paths = self._load_image_paths()
         id_to_captions = self._load_captions(use_blip=use_blip)
-        id_to_segmentations = self._load_segmentations(check_segment_threshold=check_segment_threshold)
+        id_to_segmentations = self._load_segmentations()
 
         if bg:
             id_to_bg_descriptions = self._load_bg_descriptions()
@@ -133,8 +131,6 @@ class COCODataset(Dataset):
         else:
             id_to_bg_descriptions = None
             image_ids = id_to_segmentations.keys()
-
-        print(len(image_ids))
 
         self.datapoints_raw = []
         for image_id in image_ids:
@@ -145,6 +141,7 @@ class COCODataset(Dataset):
                 bg_desc=id_to_bg_descriptions[image_id] if id_to_bg_descriptions is not None else None
             ))
 
+        self.check_segment_threshold = check_segment_threshold
         return self
 
     @staticmethod
@@ -220,6 +217,9 @@ class COCODataset(Dataset):
                 mask: Image = COCODataset.rle_to_mask(segment_raw.segment)
             else:
                 raise Exception("Unknown segment type")
+
+            if self.check_segment_threshold and self.is_object_size_threshold_surpassed_by(mask):
+                continue
 
             segments.append(COCODatapointSegment(
                 mask=mask,

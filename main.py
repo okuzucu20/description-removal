@@ -29,6 +29,11 @@ def remove_foreground_and_save_results():
     for i in tqdm(datapoint_indices):
 
         coco_data, coco_data_raw = coco_dataset[i]
+
+        if len(coco_data.segments) == 0:
+            print("Warning: No segments found in the image due to segment threshold, continuing...")
+            continue
+
         try:
             bg_desc: str = gpt_client.remove_foreground(coco_data.caption, coco_data.segments[0].objectType)
         except Exception as e:
