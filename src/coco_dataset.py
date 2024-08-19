@@ -2,6 +2,8 @@ from torch.utils.data import Dataset
 from typing import Dict, Tuple
 from src.models import *
 from PIL import Image
+from tqdm import tqdm
+from get_image_size import get_image_size
 import os
 import json
 import numpy as np
@@ -13,33 +15,48 @@ class COCODataset(Dataset):
     def __init__(self) -> None:
         self.dataset_path = "/datasets/COCO"
         self.instance_annotations_file_path = os.path.join(self.dataset_path, "annotations/instances_train2017.json")
-        self.caption_annotations_file_path = os.path.join(self.dataset_path, "annotations/captions_train2017.json")
+        self.coco_caption_annotations_file_path = os.path.join(self.dataset_path, "annotations/captions_train2017.json")
+        self.blip_caption_annotations_file_path = "blip_descriptions.json"
         self.images_dir_path = os.path.join(self.dataset_path, "train2017")
         self.bg_description_dir_path = "bg_desc_generated"
+        self.object_size_threshold = 0.2
 
         self.datapoints_raw = None
 
     def _load_image_paths(self) -> Dict[int, str]:
         image_paths: Dict[int, str] = {}
 
-        for filename in os.listdir(self.images_dir_path):
+        for filename in tqdm(os.listdir(self.images_dir_path), desc="Loading image paths"):
             if filename.endswith('jpg'):
                 image_paths[COCODataset.filepath_to_id(filename)] = os.path.join(self.images_dir_path, filename)
 
         return image_paths
 
-    def _load_captions(self) -> Dict[int, str]:
+    def _load_captions(self, use_blip=False) -> Dict[int, str]:
         captions: Dict[int, str] = {}
 
-        with open(self.caption_annotations_file_path, 'r') as f:
-            caption_dict = json.load(f)
-
-        for annotation in caption_dict["annotations"]:
-            captions[annotation["image_id"]] = annotation["caption"]
+        if use_blip:
+            self._load_blip_captions(captions)
+        else:
+            self._load_coco_captions(captions)
 
         return captions
 
-    def _load_segmentations(self) -> Dict[int, List[COCODatapointSegmentRaw]]:
+    def _load_coco_captions(self, captions) -> None:
+        with open(self.coco_caption_annotations_file_path, 'r') as f:
+            caption_dict = json.load(f)
+
+        for annotation in tqdm(caption_dict["annotations"], desc="Loading COCO captions"):
+            captions[annotation["image_id"]] = annotation["caption"]
+
+    def _load_blip_captions(self, captions) -> None:
+        with open(self.blip_caption_annotations_file_path, 'r') as f:
+            caption_dict = json.load(f)
+
+        for image_filename in tqdm(caption_dict.keys(), desc="Loading BLIP captions"):
+            captions[COCODataset.filepath_to_id(image_filename)] = caption_dict[image_filename]
+
+    def _load_segmentations(self, check_segment_threshold=False) -> Dict[int, List[COCODatapointSegmentRaw]]:
         segmentations: Dict[int, List[COCODatapointSegmentRaw]] = {}
 
         with open(self.instance_annotations_file_path, 'r') as f:
@@ -48,18 +65,22 @@ class COCODataset(Dataset):
         categories = dict([(category_dict["id"], category_dict["name"])
                            for category_dict in segmentation_dict["categories"]])
 
-        for annotation in segmentation_dict["annotations"]:
+        for annotation in tqdm(segmentation_dict["annotations"], desc="Loading segmentations"):
+
+            image_id = annotation["image_id"]
 
             if isinstance(annotation["segmentation"], dict):
                 #segment = COCODatapointSegmentRLE(**annotation["segmentation"]) TODO fix RLE masks
                 continue
             else:
                 segment = COCODatapointSegmentPolygons(polygons=annotation["segmentation"])
+                if check_segment_threshold and self.is_object_size_threshold_surpassed_by(
+                        COCODataset.polygons_to_mask(segment, get_image_size(self.id_to_image_filepath(image_id)))):
+                    continue
 
             segment_raw = COCODatapointSegmentRaw(segment=segment,
                                                   objectType=categories[annotation["category_id"]])
 
-            image_id = annotation["image_id"]
             if image_id not in segmentations:
                 segmentations[image_id] = [segment_raw]
             else:
@@ -70,7 +91,7 @@ class COCODataset(Dataset):
     def _load_bg_descriptions(self) -> Dict[int, str]:
         bg_descriptions: Dict[int, str] = {}
 
-        for bg_filename in os.listdir(self.bg_description_dir_path):
+        for bg_filename in tqdm(os.listdir(self.bg_description_dir_path), desc="Loading background descriptions"):
 
             if bg_filename.endswith('.txt'):
                 bg_filepath: str = os.path.join(self.bg_description_dir_path, bg_filename)
@@ -87,6 +108,9 @@ class COCODataset(Dataset):
     def filepath_to_id(fp: str) -> int:
         return int(fp.split('/')[-1].split('.')[0])
 
+    def id_to_image_filepath(self, img_id: int):
+        return os.path.join(self.images_dir_path, str(img_id).zfill(12) + '.jpg')
+
     def save_bg_description_of(self, datapoint_raw):
         img_id = COCODataset.filepath_to_id(datapoint_raw.image_path)
         with open(os.path.join(self.bg_description_dir_path, "{img_id}.txt".format(img_id=img_id)), 'w') as f:
@@ -98,17 +122,19 @@ class COCODataset(Dataset):
                 continue
             self.save_bg_description_of(datapoint_raw)
 
-    def load(self, use_blip=False, background=False):
+    def load(self, use_blip=False, bg=False, check_segment_threshold=False):
         id_to_image_paths = self._load_image_paths()
-        id_to_captions = self._load_captions()
-        id_to_segmentations = self._load_segmentations()
+        id_to_captions = self._load_captions(use_blip=use_blip)
+        id_to_segmentations = self._load_segmentations(check_segment_threshold=check_segment_threshold)
 
-        if background:
+        if bg:
             id_to_bg_descriptions = self._load_bg_descriptions()
             image_ids = id_to_bg_descriptions.keys()
         else:
             id_to_bg_descriptions = None
             image_ids = id_to_segmentations.keys()
+
+        print(len(image_ids))
 
         self.datapoints_raw = []
         for image_id in image_ids:
@@ -122,7 +148,7 @@ class COCODataset(Dataset):
         return self
 
     @staticmethod
-    def polygons_to_mask(datapoint_segment: COCODatapointSegmentPolygons, size: Tuple[int]) -> Image:
+    def polygons_to_mask(datapoint_segment: COCODatapointSegmentPolygons, size: Tuple) -> Image:
         mask = np.zeros(size)
 
         for polygon in datapoint_segment.polygons:
@@ -144,6 +170,9 @@ class COCODataset(Dataset):
 
         mask: Image = Image.fromarray(mask.reshape(datapoint_segment.size, order='F').astype(np.uint8), mode='L')
         return mask
+
+    def is_object_size_threshold_surpassed_by(self, mask: Image) -> bool:
+        return (np.sum(np.array(mask) == 255) / (mask.size[0] * mask.size[1])) > self.object_size_threshold
 
     @staticmethod
     def data_batch_to_image_mask_pairs(data_batch: List[COCODatapoint]):
