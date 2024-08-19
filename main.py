@@ -15,7 +15,7 @@ from torch import Generator
 from torch.optim import Adam
 from time import sleep
 
-BG_GENERATION_COUNT = 118287
+BG_GENERATION_COUNT = 40
 
 
 def remove_foreground_and_save_results():
@@ -36,7 +36,10 @@ def remove_foreground_and_save_results():
 
         coco_data_raw.bg_desc = bg_desc
         coco_dataset.save_bg_description_of(coco_data_raw)
-        print("Caption:", coco_data.caption, "Object:", coco_data.segments[0].objectType, "Background:", bg_desc)
+        print("Image id:", COCODataset.filepath_to_id(coco_data_raw.image_path),
+              "Caption:", coco_data.caption,
+              "Object:", coco_data.segments[0].objectType,
+              "Background:", bg_desc)
 
         sleep(0.01)
 
