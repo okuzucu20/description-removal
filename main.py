@@ -13,12 +13,13 @@ from random import shuffle
 from torch.utils.data import DataLoader, random_split
 from torch import Generator
 from torch.optim import Adam
+from time import sleep
 
 BG_GENERATION_COUNT = 118287
 
 
 def remove_foreground_and_save_results():
-    coco_dataset: COCODataset = COCODataset().load(background=False)
+    coco_dataset: COCODataset = COCODataset().load(bg=False, use_blip=True, check_segment_threshold=True)
     gpt_client: GPTClient = GPTClient()
 
     datapoint_indices = list(range(len(coco_dataset)))
@@ -37,13 +38,15 @@ def remove_foreground_and_save_results():
         coco_dataset.save_bg_description_of(coco_data_raw)
         print("Caption:", coco_data.caption, "Object:", coco_data.segments[0].objectType, "Background:", bg_desc)
 
+        sleep(0.01)
+
         count += 1
         if count == BG_GENERATION_COUNT:
             break
 
 
 def test_coco_initialization():
-    coco_dataset: COCODataset = COCODataset().load(background=True)
+    coco_dataset: COCODataset = COCODataset().load(bg=True)
 
     count = 0
     for coco_data, coco_data_raw in coco_dataset:
@@ -80,7 +83,7 @@ def test_coco_initialization():
 
 def generate_embeddings(config, embed_type):
     clip_away_service: CLIPAwayService = CLIPAwayService(config)
-    coco_dataset: COCODataset = COCODataset().load(background=True)
+    coco_dataset: COCODataset = COCODataset().load(bg=True)
     
     if embed_type == "image":
         batch_size = 1
@@ -116,7 +119,7 @@ def train_projection():
 
 
 def generate_samples(config, count, seed):
-    coco_dataset: COCODataset = COCODataset().load(background=False)
+    coco_dataset: COCODataset = COCODataset().load(bg=False)
     inference_module = ProjectionInference(config, coco_dataset).load()
     inference_module.generate(count=count, seed=seed)
 
