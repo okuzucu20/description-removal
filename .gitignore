@@ -1,5 +1,7 @@
-bg_desc_generated/*.txt
-image_embeds_generated/*.pt
-ckpts/*
-text_embeds_generated/*.pt
+submit_gpu_job.sh
+coco
+logs
+wandb
+temp.json
 __pycache__
+outputs
