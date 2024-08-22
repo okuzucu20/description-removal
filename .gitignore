@@ -1,3 +1,4 @@
+test.py
 submit_gpu_job.sh
 coco
 logs
@@ -5,3 +6,4 @@ wandb
 temp.json
 __pycache__
 outputs
+src

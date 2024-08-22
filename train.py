@@ -109,7 +109,7 @@ def validate(config, transformer, val_dataloader, ip_adapter, alpha_clip, alpha_
     wandb.log({"Foreground Only": [wandb.Image(fg) for fg in fg_only]})
     wandb.log({"Background Only": [wandb.Image(bg) for bg in bg_only]})
 
-def training_step(config, transformer, optimizer, batch, loss, alpha_clip, alpha_clip_preprocess, mask_transform, unclip_transformer):
+def training_step(config, transformer, optimizer, batch, loss, alpha_clip, alpha_clip_preprocess, mask_transform, unclip_transformer, use_cosine_loss):
     if config["dtype"] == "float16":
         dtype = torch.float16
     else:
@@ -128,18 +128,25 @@ def training_step(config, transformer, optimizer, batch, loss, alpha_clip, alpha
         bg_text_unclip = unclip_transformer.text_to_image_embedding(bg_desc) 
 
         # https://pytorch.org/docs/stable/generated/torch.nn.CosineEmbeddingLoss.html
-        positive_target_label = torch.ones(fg_text_unclip.shape[0]).to(config['device']) * -1
-        negative_target_label = torch.ones(fg_text_unclip.shape[0]).to(config['device'])
+        if use_cosine_loss:
+            positive_target_label = torch.ones(fg_text_unclip.shape[0]).to(config['device'])
+            negative_target_label = torch.ones(fg_text_unclip.shape[0]).to(config['device']) * -1
 
     optimizer.zero_grad()
     transformer_output = transformer(alpha_clip_fg_focused_embeddings, alpha_clip_bg_focused_embeddings)
     foreground_pred = transformer_output.foreground_output
     background_pred = transformer_output.background_output
 
-    attract_loss_fg = loss(foreground_pred, fg_text_unclip, positive_target_label)
-    attract_loss_bg = loss(background_pred, bg_text_unclip, positive_target_label)
-    repell_loss_fg = loss(foreground_pred, bg_text_unclip, negative_target_label)
-    repell_loss_bg = loss(background_pred, fg_text_unclip, negative_target_label)
+    if use_cosine_loss:
+        attract_loss_fg = loss(foreground_pred, fg_text_unclip, positive_target_label)
+        attract_loss_bg = loss(background_pred, bg_text_unclip, positive_target_label)
+        repell_loss_fg = loss(foreground_pred, bg_text_unclip, negative_target_label)
+        repell_loss_bg = loss(background_pred, fg_text_unclip, negative_target_label)
+    else:
+        attract_loss_fg = loss(foreground_pred, fg_text_unclip)
+        attract_loss_bg = loss(background_pred, bg_text_unclip)
+        repell_loss_fg = -loss(foreground_pred, bg_text_unclip)
+        repell_loss_bg = -loss(background_pred, fg_text_unclip)
     
     return attract_loss_fg, attract_loss_bg, repell_loss_fg, repell_loss_bg
 
@@ -169,7 +176,9 @@ def train(config):
     val_dataset = EvalDataset(config['val_image_dir'], config['val_mask_dir'])
     training_dataloader = torch.utils.data.DataLoader(training_dataset, batch_size=config['train_batch_size'], shuffle=True)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config['val_batch_size'], shuffle=False)
-    loss = torch.nn.CosineEmbeddingLoss()
+    use_cosine_loss = config["loss_fn"] == "cosine"
+    loss = torch.nn.CosineEmbeddingLoss() if use_cosine_loss else torch.nn.MSELoss()
+    
     
     transformer, optimizer, training_dataloader, val_dataloader = accelerator.prepare(transformer, optimizer, training_dataloader, val_dataloader)
     for epoch in tqdm(range(config['num_epochs']), desc="Epochs"):
@@ -181,7 +190,7 @@ def train(config):
         
         for batch in training_dataloader:
             attract_loss_fg, attract_loss_bg, repell_loss_fg, repell_loss_bg = training_step(config, transformer, optimizer, batch, loss, 
-                                                                                            alpha_clip, alpha_clip_preprocess, mask_transform, unclip_transformer)
+                                                                                            alpha_clip, alpha_clip_preprocess, mask_transform, unclip_transformer, use_cosine_loss)
             total_loss = attract_loss_fg + attract_loss_bg + repell_loss_fg + repell_loss_bg
 
             attract_loss_bg_epoch += attract_loss_bg
@@ -206,12 +215,13 @@ def train(config):
             
 if __name__ == "__main__":
     args = parse_args()
+    os.environ["WANDB_INIT_TIMEOUT"] = "300"
     config = OmegaConf.load(args.config)
     os.makedirs(config['output_dir'], exist_ok=True)
     wandb_run_name = config['wandb_run_name']
     wandb.init(
         project=wandb_run_name,
     )
-    wandb.run.name = wandb_run_name
+    wandb.run.name = f"CLR learning with loss function of {config['loss_fn']}"
     train(config)
     wandb.finish()
