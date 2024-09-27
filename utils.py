@@ -38,7 +38,7 @@ def karlo_prior(
     self,
     prompt: Union[str, List[str]],
     num_images_per_prompt: int = 1,
-    prior_num_inference_steps: int = 50,
+    prior_num_inference_steps: int = 20,
     generator: Optional[torch.Generator] = None,
     prior_latents: Optional[torch.FloatTensor] = None,
     prior_guidance_scale: float = 4.0,

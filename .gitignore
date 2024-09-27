@@ -7,3 +7,7 @@ temp.json
 __pycache__
 outputs
 src
+logs2
+sd-v1-5-inpainting.ckpt
+unclip_data
+final.json
