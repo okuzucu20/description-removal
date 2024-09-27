@@ -22,13 +22,19 @@
 you can find fg and bg descriptions from final.json and I will provide you the masks from google drive.
 
 # TODO:
-- generate scene descriptions from blip3(xmem) use prompts regarding erkut hoca's idea (fg is x scene is y generate me a prompt that is not 1-mask region but background)
-- generate a training metadata file from those scene descriptions 
-- start training from blip3 generations with the following configs:
-    - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: True
-    - ortho_loss_coeff: 0.1, use_ortho_loss: True, use_new_subspace_projection: True
-    - ortho_loss_coeff: 1, use_ortho_loss: False, use_new_subspace_projection: True
-    - ortho_loss_coeff: 0.1, use_ortho_loss: False, use_new_subspace_projection: True
-    - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: False
-    - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: False
-    - no orthogonal loss or subspace projection just mse
+1) **Dataset Generation with blip3**
+    - generate scene descriptions from blip3(xmem) use prompts regarding erkut hoca's idea (fg is x scene is y generate me a prompt that is not 1-mask region but background)
+    - generate a training metadata file from those scene descriptions 
+    - start training from blip3 generations with the following configs:
+        - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: True
+        - ortho_loss_coeff: 0.1, use_ortho_loss: True, use_new_subspace_projection: True
+        - ortho_loss_coeff: 1, use_ortho_loss: False, use_new_subspace_projection: True
+        - ortho_loss_coeff: 0.1, use_ortho_loss: False, use_new_subspace_projection: True
+        - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: False
+        - ortho_loss_coeff: 1, use_ortho_loss: True, use_new_subspace_projection: False
+        - no orthogonal loss or subspace projection just mse
+2) **Performance evaluation of Mask Inversion**
+    - Use clipaway projection block of maskinversion embeddings and generate images with them using ip adapter with the following setup:
+        - ip adapter generation with fg only embeddings generated from mask inversion
+        - ip adapter generation with fb only embeddings generated from mask inversion
+        - ip adapter generation with clipaway projection using bg and fg embeddings generated from mask inversion
