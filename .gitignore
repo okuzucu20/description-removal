@@ -11,3 +11,8 @@ logs2
 sd-v1-5-inpainting.ckpt
 unclip_data
 final.json
+unclip_data.zip
+test/*
+test2/*
+test3/*
+gradio_examples
