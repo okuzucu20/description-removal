@@ -136,7 +136,7 @@ class IPAdapter:
         ip_layers = torch.nn.ModuleList(self.pipe.unet.attn_processors.values())
         ip_layers.load_state_dict(state_dict["ip_adapter"])
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def get_image_embeds(self, pil_image=None, clip_image_embeds=None):
         if pil_image is not None:
             if isinstance(pil_image, Image.Image):
