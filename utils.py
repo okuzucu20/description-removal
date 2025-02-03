@@ -9,7 +9,18 @@ from safetensors.torch import load_model
 from ip_adapter.ip_adapter import IPAdapter
 import torch.nn.functional as F
 import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import PIL
 from PIL import Image
+import random
+
+def generate_image_from_embedding_with_ipadapter(ip_adapter: IPAdapter, embedding: torch.Tensor) -> torch.Tensor:
+    return ip_adapter.generate(clip_image_embeds=embedding)
+
+def inpaint_from_embedding_with_ipadapter(ip_adapter: IPAdapter, embedding: torch.Tensor, img: PIL.Image, mask: PIL.Image) -> torch.Tensor:
+    return ip_adapter.generate(clip_image_embeds=embedding, mask_image=mask, image=img)
 
 def save_batch_of_tensor_to_image(tensor: torch.Tensor, path: str, is_luminance: bool = False):
     if not is_luminance:
@@ -229,111 +240,148 @@ class SDLOSS(nn.Module):
         
         return loss
 
+##############################################################################
+# PCGradTwoLoss: a simpler, more stable approach to multi-loss gradient handling.
+##############################################################################
 
-import torch
-import torch.nn.functional as F
+class SoftMarginForgettingLoss(nn.Module):
+    """
+    A margin-based approach to push two embeddings apart, but uses a continuous penalty:
+       penalty = (relu(cos_sim - margin))^2
+    so that even if cos_sim < margin, there's a small gradient if cos_sim drifts back up.
+    """
+    def __init__(self, margin=0.3):
+        super().__init__()
+        self.margin = margin
 
-class RestrictedGradientLoss:
-    def __init__(self, model, loss_f, loss_r, r_coeff=1.0, f_coeff=1.0):
-        """
-        Initializes the RestrictedGradientLoss.
-
-        Args:
-            model: The PyTorch model being trained.
-            loss_f: A loss function representing L_f.
-            loss_r: A loss function representing L_r.
-            r_coeff: Weight for L_r.
-            f_coeff: Weight for L_f.
-        """
-        self.model = model
-        self.loss_f = loss_f
-        self.loss_r = loss_r
-        self.r_coeff = r_coeff
-        self.f_coeff = f_coeff
-
-    def compute_gradients(self, loss):
-        grads = torch.autograd.grad(loss, self.model.parameters(), create_graph=True)
-        return torch.cat([g.view(-1) for g in grads])
-
-    def compute_delta_star(self, grad_a, grad_b):
-        dot_product = torch.dot(grad_a, grad_b)
-        norm_b_squared = torch.norm(grad_b) ** 2
-        delta_star = grad_a - (dot_product / norm_b_squared) * grad_b
-        return delta_star
-
-    def compute_angle(self, grad_a, grad_b):
-        dot_product = torch.dot(grad_a, grad_b)
-        norm_a = torch.norm(grad_a)
-        norm_b = torch.norm(grad_b)
-        cos_theta = dot_product / (norm_a * norm_b + 1e-8)  # Avoid division by zero
-        angle = torch.acos(torch.clamp(cos_theta, -1.0, 1.0))  # Clamp for numerical stability
-        return angle.item() * 180 / 3.14159265359  # Convert to degrees
-
-    def __call__(self, predictions, fg1, fg2, is_2_objects, bg):
-        if self.f_coeff == 0:
-            return torch.tensor(0.0), self.loss_r(predictions, bg) * self.r_coeff, torch.tensor(0.0), torch.tensor(0.0)
-        else:
-            loss_f1 = self.loss_f(predictions, fg1) * self.f_coeff
-
-            loss_f2 = 0
-            for i in range(len(is_2_objects)):
-                if is_2_objects[i]:
-                    loss_f2 += self.loss_f(predictions, fg2[i]) * self.f_coeff
-                
-            loss_f = loss_f1 + loss_f2
-            
-            loss_r = self.loss_r(predictions, bg) * self.r_coeff
-            
-            # Compute gradients
-            grad_f = self.compute_gradients(loss_f)
-            grad_r = self.compute_gradients(loss_r)
-
-            # Compute the angle
-            angle = self.compute_angle(grad_f, grad_r)
-
-            if angle > 90 and self.r_coeff != 0 and self.f_coeff != 0:
-                # Apply restricted gradients
-                delta_f_star = self.compute_delta_star(grad_f, grad_r)
-                delta_r_star = self.compute_delta_star(grad_r, grad_f)
-                combined_gradient = delta_f_star + delta_r_star
-                angle_after_surgery = self.compute_angle(delta_f_star, delta_r_star)
-                if angle_after_surgery > 90:
-                    # If the angle is still greater than 90 degrees,  zero out the gradients
-                    combined_gradient = torch.zeros_like(combined_gradient)
-                    angle_after_surgery = 0
-            else:
-                # Use direct aggregation if gradients are aligned
-                combined_gradient = grad_f + grad_r
-                angle_after_surgery = angle
-
-            # Apply the gradient to the model's parameters manually
-            with torch.no_grad():
-                offset = 0
-                for param in self.model.parameters():
-                    numel = param.numel()
-                    grad = combined_gradient[offset : offset + numel].view(param.size())
-                    param.grad = grad
-                    offset += numel
-                    
-            return loss_f, loss_r, angle, angle_after_surgery
-
-
+    def forward(self, embedding_a: torch.Tensor, embedding_b: torch.Tensor) -> torch.Tensor:
+        # Normalize each embedding
+        a_norm = F.normalize(embedding_a, p=2, dim=-1)
+        b_norm = F.normalize(embedding_b, p=2, dim=-1)
+        # Cosine similarity per sample
+        cos_sim = F.cosine_similarity(a_norm, b_norm, dim=-1)
+        # We apply a continuous margin penalty:
+        # The portion above margin is penalized, and we square it for a smoother gradient
+        over_margin = F.relu(cos_sim - self.margin)
+        penalty = over_margin ** 2
+        return penalty.mean()
 
 
 class ReconstructionLoss(nn.Module):
-    def __init__(self):
-        super(ReconstructionLoss, self).__init__()
+    """
+    By default, a standard MSE between embeddings. Optionally clamp diff to avoid huge outliers.
+    """
+    def __init__(self, clamp_value=None):
+        super().__init__()
+        self.clamp_value = clamp_value
 
     def forward(self, embedding_a: torch.Tensor, embedding_b: torch.Tensor) -> torch.Tensor:
-        return F.mse_loss(embedding_a, embedding_b)
-    
-class ForgettingLoss(nn.Module):
-    def __init__(self):
-        super(ForgettingLoss, self).__init__()
+        diff = embedding_a - embedding_b
+        if self.clamp_value is not None:
+            diff = torch.clamp(diff, min=-self.clamp_value, max=self.clamp_value)
+        return torch.mean(diff * diff)
 
-    def forward(self, embedding_a: torch.Tensor, embedding_b: torch.Tensor) -> torch.Tensor:
-        embedding_a = F.normalize(embedding_a, p=2, dim=-1)
-        embedding_b = F.normalize(embedding_b, p=2, dim=-1)
-        cosine_similarity = F.cosine_similarity(embedding_a, embedding_b, dim=-1)
-        orthogonality_loss = cosine_similarity.abs().mean()
-        return orthogonality_loss
+class PCGradSingleFG(nn.Module):
+    """
+    A two-task PCGrad approach:
+      - FG (forget object)
+      - BG (reconstruct background)
+
+    Uses partial gradient projection (alpha=0.5) to avoid fully removing
+    negative dot products. The forgetting and reconstruction losses
+    are provided at init. 
+    """
+    def __init__(self, model, loss_f, loss_r, f_coeff=1.0, r_coeff=1.0, projection_alpha=0.5):
+        """
+        Args:
+          model: The MLP (or any nn.Module) being trained.
+          loss_f: The forgetting loss (e.g., a margin-based forgetting).
+          loss_r: The reconstruction loss (e.g., MSE).
+          f_coeff: Weight for FG forgetting objective.
+          r_coeff: Weight for BG reconstruction objective.
+          projection_alpha: fraction of the negative overlap to remove in PCGrad.
+        """
+        super().__init__()
+        self.model = model
+        self.loss_f = loss_f
+        self.loss_r = loss_r
+        self.f_coeff = f_coeff
+        self.r_coeff = r_coeff
+        self.projection_alpha = projection_alpha
+
+    def compute_grad(self, loss):
+        """
+        Compute gradients w.r.t model parameters in a single flattened vector.
+        """
+        grads = torch.autograd.grad(loss, self.model.parameters(), create_graph=False, retain_graph=True)
+        # Flatten all param grads (skip None in case some params don't get grads)
+        return torch.cat([g.reshape(-1) for g in grads if g is not None])
+
+    def apply_combined_grad(self, combined_grad):
+        """
+        Unflatten combined_grad and assign back to each parameter's .grad.
+        """
+        offset = 0
+        for param in self.model.parameters():
+            numel = param.numel()
+            grad_slice = combined_grad[offset:offset+numel].view(param.size())
+            param.grad = grad_slice
+            offset += numel
+
+    def project_conflict(self, grad_i, grad_j):
+        """
+        Soft PCGrad approach: if dot(grad_i, grad_j) < 0, remove alpha fraction.
+        """
+        dot_val = torch.dot(grad_i, grad_j)
+        if dot_val < 0:
+            norm_j_sq = torch.dot(grad_j, grad_j).clamp_min(1e-12)
+            alpha = self.projection_alpha
+            grad_i = grad_i - alpha * (dot_val / norm_j_sq) * grad_j
+        return grad_i
+
+    def forward(self, preds, fg, bg):
+        """
+        preds: [B, D] => MLP output
+        fg:    [B, D] => FG embedding (e.g., text or object concept)
+        bg:    [B, D] => background embedding
+
+        Returns: (L_fg, L_bg) for logging.
+
+        Steps:
+          1) Build FG loss, BG loss.
+          2) PCGrad across the 2 tasks => final gradient => model.param.grad.
+          3) Return losses for logging.
+        """
+        # 1) Compute each scalar loss
+        L_fg = self.loss_f(preds, fg) * self.f_coeff
+        L_bg = self.loss_r(preds, bg) * self.r_coeff
+
+        # 2) Gather tasks
+        task_losses = [L_fg, L_bg]
+        grads = []
+        for loss_val in task_losses:
+            g = self.compute_grad(loss_val)
+            grads.append(g)
+
+        # Debug: print grad norms
+        print("Grad norms => FG:", torch.norm(grads[0]), " BG:", torch.norm(grads[1]))
+
+        # 3) PCGrad logic (2 tasks is simpler, but we'll keep a consistent pattern)
+        indices = [0, 1]
+        random.shuffle(indices)
+        new_grads = [grads[i].clone() for i in indices]
+
+        # For i=1, project out negative from j=0
+        # If the random shuffle leads to [BG, FG], it projects BG onto FG, etc.
+        for i in range(1, len(new_grads)):
+            for j in range(i):
+                new_grads[i] = self.project_conflict(new_grads[i], new_grads[j])
+
+        # 4) Sum final grads
+        final_grads = torch.stack(new_grads, dim=0).sum(dim=0)
+
+        # 5) Assign to model param.grad
+        with torch.no_grad():
+            self.apply_combined_grad(final_grads)
+
+        return L_fg, L_bg

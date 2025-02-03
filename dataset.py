@@ -101,7 +101,7 @@ class LayerDiffuseDataset(Dataset):
         combined_image = self.combined_images[idx]
         
         bg_path = self.metadata[combined_image]['bg_path']
-        fg_word1, fg_word2, object_count_is_2 = self.get_fg_objects(self.metadata[combined_image]['fg_path1'], self.metadata[combined_image]['fg_path2'])
+        fg_word1, _, _ = self.get_fg_objects(self.metadata[combined_image]['fg_path1'], self.metadata[combined_image]['fg_path2'])
         mask_path = self.metadata[combined_image]['mask_path']
         
         bg_image = Image.open(bg_path).resize((224, 224), Image.BICUBIC).convert('RGB')
@@ -119,8 +119,6 @@ class LayerDiffuseDataset(Dataset):
             "combined_image": combined_image,
             "mask": mask,
             "fg_word1": fg_word1,
-            "fg_word2": fg_word2 if fg_word2 is not None else "",
-            "object_count_is_2": object_count_is_2
         }
             
 if __name__ == "__main__":
